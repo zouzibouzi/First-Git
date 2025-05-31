@@ -8,19 +8,10 @@ import { formatCurrency } from '@/utils/formatters';
 import { CURRENCIES } from '@/data/currencies';
 import EmptyState from '@/components/EmptyState';
 import { ArrowRightLeft } from 'lucide-react-native';
-import CalendarStrip from 'react-native-calendar-strip';
-import { format, isWithinInterval, startOfDay, endOfDay, addYears, subYears } from 'date-fns';
 
 export default function BalanceScreen() {
   const { transactions } = useTransactionHistory();
   const [displayCurrency, setDisplayCurrency] = useState<'DZD' | 'USD' | 'EUR'>('DZD');
-  const [dateRange, setDateRange] = useState<{
-    start: Date | null;
-    end: Date | null;
-  }>({
-    start: null,
-    end: null,
-  });
 
   // Get the last used rate for each target currency
   const getLastRate = (targetCurrency: 'EUR' | 'USD') => {
@@ -30,33 +21,11 @@ export default function BalanceScreen() {
     return lastTransaction?.rate || null;
   };
 
-  // Filter transactions by date range
-  const filteredTransactions = React.useMemo(() => {
-    if (!dateRange.start && !dateRange.end) return transactions;
-
-    return transactions.filter(transaction => {
-      const transactionDate = new Date(transaction.timestamp);
-      
-      if (dateRange.start && dateRange.end) {
-        return isWithinInterval(transactionDate, {
-          start: startOfDay(dateRange.start),
-          end: endOfDay(dateRange.end),
-        });
-      } else if (dateRange.start) {
-        return transactionDate >= startOfDay(dateRange.start);
-      } else if (dateRange.end) {
-        return transactionDate <= endOfDay(dateRange.end);
-      }
-      
-      return true;
-    });
-  }, [transactions, dateRange]);
-
-  // Calculate balances based on filtered transactions
+  // Calculate balances
   const balances = React.useMemo(() => {
     const balanceMap = new Map();
 
-    filteredTransactions.forEach(transaction => {
+    transactions.forEach(transaction => {
       const key = transaction.currencyCode;
       const currentBalance = balanceMap.get(key) || {
         buys: 0,
@@ -89,7 +58,7 @@ export default function BalanceScreen() {
       ...data,
       netTotal: data.buys - data.sells,
     }));
-  }, [filteredTransactions]);
+  }, [transactions]);
 
   // Calculate total net balance across all currencies
   const totalNetBalance = balances.reduce((total, balance) => total + balance.netTotal, 0);
@@ -111,20 +80,6 @@ export default function BalanceScreen() {
     if (displayCurrency === 'DZD') return amount;
     const rate = getLastRate(displayCurrency);
     return rate ? amount / rate : null;
-  };
-
-  const handleDateSelect = (date: Date) => {
-    if (!dateRange.start) {
-      setDateRange({ start: date, end: null });
-    } else if (!dateRange.end && date > dateRange.start) {
-      setDateRange(prev => ({ ...prev, end: date }));
-    } else {
-      setDateRange({ start: date, end: null });
-    }
-  };
-
-  const clearDateRange = () => {
-    setDateRange({ start: null, end: null });
   };
 
   const renderBalanceItem = ({ item }) => (
@@ -180,60 +135,23 @@ export default function BalanceScreen() {
       
       {transactions.length > 0 ? (
         <>
-          <View style={styles.filtersContainer}>
-            <TouchableOpacity 
-              style={styles.currencySelector}
-              onPress={toggleDisplayCurrency}
-            >
-              <View>
-                <Text style={styles.currencySelectorLabel}>Display Currency:</Text>
-                {displayCurrency !== 'DZD' && lastRate && (
-                  <Text style={styles.exchangeRate}>
-                    1 {displayCurrency} = {lastRate} DZD
-                  </Text>
-                )}
-              </View>
-              <View style={styles.currencySelectorButton}>
-                <Text style={styles.currencySelectorText}>{displayCurrency}</Text>
-                <ArrowRightLeft size={16} color={COLORS.primary} />
-              </View>
-            </TouchableOpacity>
-
-            <View style={styles.calendarContainer}>
-              <View style={styles.calendarHeader}>
-                <Text style={styles.calendarTitle}>
-                  {dateRange.start
-                    ? dateRange.end
-                      ? `${format(dateRange.start, 'MMM d')} - ${format(dateRange.end, 'MMM d, yyyy')}`
-                      : `From ${format(dateRange.start, 'MMM d, yyyy')}`
-                    : 'Select date range'}
+          <TouchableOpacity 
+            style={styles.currencySelector}
+            onPress={toggleDisplayCurrency}
+          >
+            <View>
+              <Text style={styles.currencySelectorLabel}>Display Currency:</Text>
+              {displayCurrency !== 'DZD' && lastRate && (
+                <Text style={styles.exchangeRate}>
+                  1 {displayCurrency} = {lastRate} DZD
                 </Text>
-                {(dateRange.start || dateRange.end) && (
-                  <TouchableOpacity onPress={clearDateRange} style={styles.clearButton}>
-                    <Text style={styles.clearButtonText}>Clear</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-              <CalendarStrip
-                scrollable
-                style={styles.calendar}
-                calendarColor={COLORS.cardBackground}
-                calendarHeaderStyle={styles.calendarHeaderText}
-                dateNumberStyle={styles.calendarDateNumber}
-                dateNameStyle={styles.calendarDateName}
-                highlightDateNumberStyle={styles.calendarHighlightNumber}
-                highlightDateNameStyle={styles.calendarHighlightName}
-                disabledDateNameStyle={styles.calendarDisabledName}
-                disabledDateNumberStyle={styles.calendarDisabledNumber}
-                iconContainer={{ flex: 0.1 }}
-                minDate={subYears(new Date(), 1)}
-                maxDate={new Date()}
-                selectedDate={dateRange.start}
-                onDateSelected={handleDateSelect}
-                highlightDateContainerStyle={styles.highlightContainer}
-              />
+              )}
             </View>
-          </View>
+            <View style={styles.currencySelectorButton}>
+              <Text style={styles.currencySelectorText}>{displayCurrency}</Text>
+              <ArrowRightLeft size={16} color={COLORS.primary} />
+            </View>
+          </TouchableOpacity>
 
           <View style={styles.totalBalanceCard}>
             <Text style={styles.totalBalanceLabel}>Total Net Balance:</Text>
@@ -249,21 +167,13 @@ export default function BalanceScreen() {
             </Text>
           </View>
 
-          {balances.length > 0 ? (
-            <FlatList
-              data={balances}
-              renderItem={renderBalanceItem}
-              keyExtractor={item => item.code}
-              contentContainerStyle={styles.content}
-              showsVerticalScrollIndicator={false}
-            />
-          ) : (
-            <EmptyState
-              title="No transactions found"
-              description="No transactions exist for the selected date range"
-              icon="history"
-            />
-          )}
+          <FlatList
+            data={balances}
+            renderItem={renderBalanceItem}
+            keyExtractor={item => item.code}
+            contentContainerStyle={styles.content}
+            showsVerticalScrollIndicator={false}
+          />
         </>
       ) : (
         <EmptyState
@@ -281,15 +191,11 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
-  filtersContainer: {
-    backgroundColor: COLORS.cardBackground,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-  },
   currencySelector: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    backgroundColor: COLORS.cardBackground,
     padding: 16,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
@@ -318,69 +224,6 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Bold',
     fontSize: 16,
     color: COLORS.primary,
-  },
-  calendarContainer: {
-    paddingVertical: 12,
-  },
-  calendarHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    marginBottom: 8,
-  },
-  calendarTitle: {
-    fontFamily: 'Inter-Bold',
-    fontSize: 14,
-    color: COLORS.text,
-  },
-  clearButton: {
-    backgroundColor: COLORS.error + '20',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  clearButtonText: {
-    fontFamily: 'Inter-Bold',
-    fontSize: 14,
-    color: COLORS.error,
-  },
-  calendar: {
-    height: 100,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-  },
-  calendarHeaderText: {
-    fontFamily: 'Inter-Bold',
-    color: COLORS.text,
-  },
-  calendarDateNumber: {
-    fontFamily: 'Inter-Regular',
-    color: COLORS.text,
-  },
-  calendarDateName: {
-    fontFamily: 'Inter-Regular',
-    color: COLORS.textSecondary,
-  },
-  calendarHighlightNumber: {
-    fontFamily: 'Inter-Bold',
-    color: COLORS.cardBackground,
-  },
-  calendarHighlightName: {
-    fontFamily: 'Inter-Regular',
-    color: COLORS.cardBackground,
-  },
-  calendarDisabledName: {
-    fontFamily: 'Inter-Regular',
-    color: COLORS.textSecondary + '50',
-  },
-  calendarDisabledNumber: {
-    fontFamily: 'Inter-Regular',
-    color: COLORS.textSecondary + '50',
-  },
-  highlightContainer: {
-    backgroundColor: COLORS.primary,
   },
   totalBalanceCard: {
     backgroundColor: COLORS.cardBackground,
