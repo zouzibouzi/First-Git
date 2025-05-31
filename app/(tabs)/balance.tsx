@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, Platform } from 'react-native';
+import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Header from '@/components/Header';
 import { COLORS } from '@/constants/Colors';
@@ -7,15 +7,13 @@ import { useTransactionHistory } from '@/hooks/useTransactionHistory';
 import { formatCurrency } from '@/utils/formatters';
 import { CURRENCIES } from '@/data/currencies';
 import EmptyState from '@/components/EmptyState';
-import { ArrowRightLeft, Calendar } from 'lucide-react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
-import { format, isWithinInterval, startOfDay, endOfDay, isValid } from 'date-fns';
+import { ArrowRightLeft } from 'lucide-react-native';
+import CalendarStrip from 'react-native-calendar-strip';
+import { format, isWithinInterval, startOfDay, endOfDay, addYears, subYears } from 'date-fns';
 
 export default function BalanceScreen() {
   const { transactions } = useTransactionHistory();
   const [displayCurrency, setDisplayCurrency] = useState<'DZD' | 'USD' | 'EUR'>('DZD');
-  const [showStartPicker, setShowStartPicker] = useState(false);
-  const [showEndPicker, setShowEndPicker] = useState(false);
   const [dateRange, setDateRange] = useState<{
     start: Date | null;
     end: Date | null;
@@ -115,17 +113,13 @@ export default function BalanceScreen() {
     return rate ? amount / rate : null;
   };
 
-  const handleDateChange = (event: any, selectedDate: Date | undefined, type: 'start' | 'end') => {
-    if (Platform.OS === 'android') {
-      setShowStartPicker(false);
-      setShowEndPicker(false);
-    }
-
-    if (selectedDate && isValid(selectedDate)) {
-      setDateRange(prev => ({
-        ...prev,
-        [type]: selectedDate,
-      }));
+  const handleDateSelect = (date: Date) => {
+    if (!dateRange.start) {
+      setDateRange({ start: date, end: null });
+    } else if (!dateRange.end && date > dateRange.start) {
+      setDateRange(prev => ({ ...prev, end: date }));
+    } else {
+      setDateRange({ start: date, end: null });
     }
   };
 
@@ -205,40 +199,39 @@ export default function BalanceScreen() {
               </View>
             </TouchableOpacity>
 
-            <View style={styles.dateFilterContainer}>
-              <View style={styles.dateFilterHeader}>
-                <View style={styles.dateFilterTitle}>
-                  <Calendar size={20} color={COLORS.textSecondary} />
-                  <Text style={styles.dateFilterLabel}>Date Range:</Text>
-                </View>
+            <View style={styles.calendarContainer}>
+              <View style={styles.calendarHeader}>
+                <Text style={styles.calendarTitle}>
+                  {dateRange.start
+                    ? dateRange.end
+                      ? `${format(dateRange.start, 'MMM d')} - ${format(dateRange.end, 'MMM d, yyyy')}`
+                      : `From ${format(dateRange.start, 'MMM d, yyyy')}`
+                    : 'Select date range'}
+                </Text>
                 {(dateRange.start || dateRange.end) && (
                   <TouchableOpacity onPress={clearDateRange} style={styles.clearButton}>
                     <Text style={styles.clearButtonText}>Clear</Text>
                   </TouchableOpacity>
                 )}
               </View>
-              
-              <View style={styles.dateInputsContainer}>
-                <TouchableOpacity
-                  style={styles.dateInput}
-                  onPress={() => setShowStartPicker(true)}
-                >
-                  <Text style={styles.dateInputLabel}>From:</Text>
-                  <Text style={styles.dateInputValue}>
-                    {dateRange.start ? format(dateRange.start, 'MMM dd, yyyy') : 'Select date'}
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.dateInput}
-                  onPress={() => setShowEndPicker(true)}
-                >
-                  <Text style={styles.dateInputLabel}>To:</Text>
-                  <Text style={styles.dateInputValue}>
-                    {dateRange.end ? format(dateRange.end, 'MMM dd, yyyy') : 'Select date'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
+              <CalendarStrip
+                scrollable
+                style={styles.calendar}
+                calendarColor={COLORS.cardBackground}
+                calendarHeaderStyle={styles.calendarHeaderText}
+                dateNumberStyle={styles.calendarDateNumber}
+                dateNameStyle={styles.calendarDateName}
+                highlightDateNumberStyle={styles.calendarHighlightNumber}
+                highlightDateNameStyle={styles.calendarHighlightName}
+                disabledDateNameStyle={styles.calendarDisabledName}
+                disabledDateNumberStyle={styles.calendarDisabledNumber}
+                iconContainer={{ flex: 0.1 }}
+                minDate={subYears(new Date(), 1)}
+                maxDate={new Date()}
+                selectedDate={dateRange.start}
+                onDateSelected={handleDateSelect}
+                highlightDateContainerStyle={styles.highlightContainer}
+              />
             </View>
           </View>
 
@@ -269,28 +262,6 @@ export default function BalanceScreen() {
               title="No transactions found"
               description="No transactions exist for the selected date range"
               icon="history"
-            />
-          )}
-
-          {/* Date Pickers */}
-          {(Platform.OS === 'ios' || showStartPicker) && (
-            <DateTimePicker
-              value={dateRange.start || new Date()}
-              mode="date"
-              display={Platform.OS === 'ios' ? 'inline' : 'default'}
-              onChange={(event, date) => handleDateChange(event, date, 'start')}
-              maximumDate={dateRange.end || new Date()}
-            />
-          )}
-
-          {(Platform.OS === 'ios' || showEndPicker) && (
-            <DateTimePicker
-              value={dateRange.end || new Date()}
-              mode="date"
-              display={Platform.OS === 'ios' ? 'inline' : 'default'}
-              onChange={(event, date) => handleDateChange(event, date, 'end')}
-              minimumDate={dateRange.start || undefined}
-              maximumDate={new Date()}
             />
           )}
         </>
@@ -348,24 +319,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: COLORS.primary,
   },
-  dateFilterContainer: {
-    padding: 16,
+  calendarContainer: {
+    paddingVertical: 12,
   },
-  dateFilterHeader: {
+  calendarHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    paddingHorizontal: 16,
+    marginBottom: 8,
   },
-  dateFilterTitle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  dateFilterLabel: {
-    fontFamily: 'Inter-Regular',
+  calendarTitle: {
+    fontFamily: 'Inter-Bold',
     fontSize: 14,
-    color: COLORS.textSecondary,
+    color: COLORS.text,
   },
   clearButton: {
     backgroundColor: COLORS.error + '20',
@@ -378,28 +345,42 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COLORS.error,
   },
-  dateInputsContainer: {
-    flexDirection: 'row',
-    gap: 12,
+  calendar: {
+    height: 100,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
   },
-  dateInput: {
-    flex: 1,
-    backgroundColor: COLORS.backgroundSecondary,
-    padding: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  dateInputLabel: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 12,
-    color: COLORS.textSecondary,
-    marginBottom: 4,
-  },
-  dateInputValue: {
+  calendarHeaderText: {
     fontFamily: 'Inter-Bold',
-    fontSize: 14,
     color: COLORS.text,
+  },
+  calendarDateNumber: {
+    fontFamily: 'Inter-Regular',
+    color: COLORS.text,
+  },
+  calendarDateName: {
+    fontFamily: 'Inter-Regular',
+    color: COLORS.textSecondary,
+  },
+  calendarHighlightNumber: {
+    fontFamily: 'Inter-Bold',
+    color: COLORS.cardBackground,
+  },
+  calendarHighlightName: {
+    fontFamily: 'Inter-Regular',
+    color: COLORS.cardBackground,
+  },
+  calendarDisabledName: {
+    fontFamily: 'Inter-Regular',
+    color: COLORS.textSecondary + '50',
+  },
+  calendarDisabledNumber: {
+    fontFamily: 'Inter-Regular',
+    color: COLORS.textSecondary + '50',
+  },
+  highlightContainer: {
+    backgroundColor: COLORS.primary,
   },
   totalBalanceCard: {
     backgroundColor: COLORS.cardBackground,
