@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Header from '@/components/Header';
 import { COLORS } from '@/constants/Colors';
@@ -7,11 +7,22 @@ import { useTransactionHistory } from '@/hooks/useTransactionHistory';
 import { formatCurrency } from '@/utils/formatters';
 import { CURRENCIES } from '@/data/currencies';
 import EmptyState from '@/components/EmptyState';
-import { ArrowRightLeft } from 'lucide-react-native';
+import { ArrowRightLeft, Calendar } from 'lucide-react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { format, isWithinInterval, startOfDay, endOfDay, isValid } from 'date-fns';
 
 export default function BalanceScreen() {
   const { transactions } = useTransactionHistory();
   const [displayCurrency, setDisplayCurrency] = useState<'DZD' | 'USD' | 'EUR'>('DZD');
+  const [showStartPicker, setShowStartPicker] = useState(false);
+  const [showEndPicker, setShowEndPicker] = useState(false);
+  const [dateRange, setDateRange] = useState<{
+    start: Date | null;
+    end: Date | null;
+  }>({
+    start: null,
+    end: null,
+  });
 
   // Get the last used rate for each target currency
   const getLastRate = (targetCurrency: 'EUR' | 'USD') => {
@@ -21,11 +32,33 @@ export default function BalanceScreen() {
     return lastTransaction?.rate || null;
   };
 
-  // Calculate balance for each currency
+  // Filter transactions by date range
+  const filteredTransactions = React.useMemo(() => {
+    if (!dateRange.start && !dateRange.end) return transactions;
+
+    return transactions.filter(transaction => {
+      const transactionDate = new Date(transaction.timestamp);
+      
+      if (dateRange.start && dateRange.end) {
+        return isWithinInterval(transactionDate, {
+          start: startOfDay(dateRange.start),
+          end: endOfDay(dateRange.end),
+        });
+      } else if (dateRange.start) {
+        return transactionDate >= startOfDay(dateRange.start);
+      } else if (dateRange.end) {
+        return transactionDate <= endOfDay(dateRange.end);
+      }
+      
+      return true;
+    });
+  }, [transactions, dateRange]);
+
+  // Calculate balances based on filtered transactions
   const balances = React.useMemo(() => {
     const balanceMap = new Map();
 
-    transactions.forEach(transaction => {
+    filteredTransactions.forEach(transaction => {
       const key = transaction.currencyCode;
       const currentBalance = balanceMap.get(key) || {
         buys: 0,
@@ -58,7 +91,7 @@ export default function BalanceScreen() {
       ...data,
       netTotal: data.buys - data.sells,
     }));
-  }, [transactions]);
+  }, [filteredTransactions]);
 
   // Calculate total net balance across all currencies
   const totalNetBalance = balances.reduce((total, balance) => total + balance.netTotal, 0);
@@ -80,6 +113,24 @@ export default function BalanceScreen() {
     if (displayCurrency === 'DZD') return amount;
     const rate = getLastRate(displayCurrency);
     return rate ? amount / rate : null;
+  };
+
+  const handleDateChange = (event: any, selectedDate: Date | undefined, type: 'start' | 'end') => {
+    if (Platform.OS === 'android') {
+      setShowStartPicker(false);
+      setShowEndPicker(false);
+    }
+
+    if (selectedDate && isValid(selectedDate)) {
+      setDateRange(prev => ({
+        ...prev,
+        [type]: selectedDate,
+      }));
+    }
+  };
+
+  const clearDateRange = () => {
+    setDateRange({ start: null, end: null });
   };
 
   const renderBalanceItem = ({ item }) => (
@@ -133,25 +184,63 @@ export default function BalanceScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       <Header title="Balance Summary" />
       
-      {balances.length > 0 ? (
+      {transactions.length > 0 ? (
         <>
-          <TouchableOpacity 
-            style={styles.currencySelector}
-            onPress={toggleDisplayCurrency}
-          >
-            <View>
-              <Text style={styles.currencySelectorLabel}>Display Currency:</Text>
-              {displayCurrency !== 'DZD' && lastRate && (
-                <Text style={styles.exchangeRate}>
-                  1 {displayCurrency} = {lastRate} DZD
-                </Text>
-              )}
+          <View style={styles.filtersContainer}>
+            <TouchableOpacity 
+              style={styles.currencySelector}
+              onPress={toggleDisplayCurrency}
+            >
+              <View>
+                <Text style={styles.currencySelectorLabel}>Display Currency:</Text>
+                {displayCurrency !== 'DZD' && lastRate && (
+                  <Text style={styles.exchangeRate}>
+                    1 {displayCurrency} = {lastRate} DZD
+                  </Text>
+                )}
+              </View>
+              <View style={styles.currencySelectorButton}>
+                <Text style={styles.currencySelectorText}>{displayCurrency}</Text>
+                <ArrowRightLeft size={16} color={COLORS.primary} />
+              </View>
+            </TouchableOpacity>
+
+            <View style={styles.dateFilterContainer}>
+              <View style={styles.dateFilterHeader}>
+                <View style={styles.dateFilterTitle}>
+                  <Calendar size={20} color={COLORS.textSecondary} />
+                  <Text style={styles.dateFilterLabel}>Date Range:</Text>
+                </View>
+                {(dateRange.start || dateRange.end) && (
+                  <TouchableOpacity onPress={clearDateRange} style={styles.clearButton}>
+                    <Text style={styles.clearButtonText}>Clear</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              
+              <View style={styles.dateInputsContainer}>
+                <TouchableOpacity
+                  style={styles.dateInput}
+                  onPress={() => setShowStartPicker(true)}
+                >
+                  <Text style={styles.dateInputLabel}>From:</Text>
+                  <Text style={styles.dateInputValue}>
+                    {dateRange.start ? format(dateRange.start, 'MMM dd, yyyy') : 'Select date'}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.dateInput}
+                  onPress={() => setShowEndPicker(true)}
+                >
+                  <Text style={styles.dateInputLabel}>To:</Text>
+                  <Text style={styles.dateInputValue}>
+                    {dateRange.end ? format(dateRange.end, 'MMM dd, yyyy') : 'Select date'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
-            <View style={styles.currencySelectorButton}>
-              <Text style={styles.currencySelectorText}>{displayCurrency}</Text>
-              <ArrowRightLeft size={16} color={COLORS.primary} />
-            </View>
-          </TouchableOpacity>
+          </View>
 
           <View style={styles.totalBalanceCard}>
             <Text style={styles.totalBalanceLabel}>Total Net Balance:</Text>
@@ -167,13 +256,43 @@ export default function BalanceScreen() {
             </Text>
           </View>
 
-          <FlatList
-            data={balances}
-            renderItem={renderBalanceItem}
-            keyExtractor={item => item.code}
-            contentContainerStyle={styles.content}
-            showsVerticalScrollIndicator={false}
-          />
+          {balances.length > 0 ? (
+            <FlatList
+              data={balances}
+              renderItem={renderBalanceItem}
+              keyExtractor={item => item.code}
+              contentContainerStyle={styles.content}
+              showsVerticalScrollIndicator={false}
+            />
+          ) : (
+            <EmptyState
+              title="No transactions found"
+              description="No transactions exist for the selected date range"
+              icon="history"
+            />
+          )}
+
+          {/* Date Pickers */}
+          {(Platform.OS === 'ios' || showStartPicker) && (
+            <DateTimePicker
+              value={dateRange.start || new Date()}
+              mode="date"
+              display={Platform.OS === 'ios' ? 'inline' : 'default'}
+              onChange={(event, date) => handleDateChange(event, date, 'start')}
+              maximumDate={dateRange.end || new Date()}
+            />
+          )}
+
+          {(Platform.OS === 'ios' || showEndPicker) && (
+            <DateTimePicker
+              value={dateRange.end || new Date()}
+              mode="date"
+              display={Platform.OS === 'ios' ? 'inline' : 'default'}
+              onChange={(event, date) => handleDateChange(event, date, 'end')}
+              minimumDate={dateRange.start || undefined}
+              maximumDate={new Date()}
+            />
+          )}
         </>
       ) : (
         <EmptyState
@@ -191,11 +310,15 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
+  filtersContainer: {
+    backgroundColor: COLORS.cardBackground,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
   currencySelector: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: COLORS.cardBackground,
     padding: 16,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
@@ -224,6 +347,59 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Bold',
     fontSize: 16,
     color: COLORS.primary,
+  },
+  dateFilterContainer: {
+    padding: 16,
+  },
+  dateFilterHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  dateFilterTitle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  dateFilterLabel: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 14,
+    color: COLORS.textSecondary,
+  },
+  clearButton: {
+    backgroundColor: COLORS.error + '20',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  clearButtonText: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 14,
+    color: COLORS.error,
+  },
+  dateInputsContainer: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  dateInput: {
+    flex: 1,
+    backgroundColor: COLORS.backgroundSecondary,
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  dateInputLabel: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    marginBottom: 4,
+  },
+  dateInputValue: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 14,
+    color: COLORS.text,
   },
   totalBalanceCard: {
     backgroundColor: COLORS.cardBackground,
